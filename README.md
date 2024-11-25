@@ -3,6 +3,7 @@ This is a script that automates the installation and updating of git versions of
 
 # To Install
 clone the repository:
+
 ```git clone https://github.com/ctilley83/hyprland-git.git```
 
 ```cd hyprland-git```
