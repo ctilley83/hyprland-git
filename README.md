@@ -8,14 +8,17 @@ clone the repository:
 
 ```cd hyprland-git```
 
-
 ```chmod +x install.sh```
+
 For initial installation and updating simply run:
+
 ```./install.sh```
 
 To install or rebuild all packages pass the --rebuild-all flag
+
 ```./install.sh --rebuild-all```
 
 To install or rebuild select packages pass the --rebuild-only flag
-``` ./install.sh --rebuild-only "Hyprland" "aquamarine" "hyprutils"
+
+``` ./install.sh --rebuild-only "Hyprland" "aquamarine" "hyprutils"```
 
