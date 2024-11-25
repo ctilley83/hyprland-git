@@ -1,7 +1,7 @@
 # hyprland-git
 This is a script that automates the installation and updating of git versions of the entire hyprland ecosystem. Currently the script works with EndeavourOS/Arch, openSUSE Tumbleweed, and Ubuntu. Fedora coming soon. Use at your own risk. I've only tested it on Arch based systems. It parses the output of ```lsb_release -si``` to determine which distribution to build for.
 
-#Packages Included:
+# Packages Included:
 - Hyprland
 - aquamarine
 - hyprutils
