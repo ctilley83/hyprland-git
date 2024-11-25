@@ -18,7 +18,7 @@ To install or rebuild all packages pass the --rebuild-all flag
 
 ```./install.sh --rebuild-all```
 
-To install or rebuild select packages pass the --rebuild-only flag
+To install or rebuild select packages pass the --rebuild-only flag. For ex:
 
 ``` ./install.sh --rebuild-only "Hyprland" "aquamarine" "hyprutils"```
 
