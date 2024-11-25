@@ -14,11 +14,11 @@ For initial installation and updating simply run:
 
 ```./install.sh```
 
-To install or rebuild all packages pass the --rebuild-all flag
+To install or rebuild all packages pass the --rebuild flag
 
-```./install.sh --rebuild-all```
+```./install.sh --rebuild```
 
-To install or rebuild select packages pass the --rebuild-only flag. For ex:
+To install or rebuild select packages pass the --rebuild_only flag. For ex:
 
-``` ./install.sh --rebuild-only "Hyprland" "aquamarine" "hyprutils"```
+``` ./install.sh --rebuild_only "Hyprland" "aquamarine" "hyprutils"```
 
