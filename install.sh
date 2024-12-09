@@ -88,7 +88,7 @@ hyprutils() {
     cd ..
 }
 hyprland-qtutils() {
-    check_and_clone_repo "hyprutils" "https://github.com/hyprwm/hyprland-qtutils.git"
+    check_and_clone_repo "hyprland-qtutils" "https://github.com/hyprwm/hyprland-qtutils.git"
     echo
     echo "##############################################"
     echo "# Processing repository: hyprland-qtutils... #"
