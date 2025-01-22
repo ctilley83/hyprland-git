@@ -32,8 +32,8 @@ Dependencies() {
         echo "######################################"
         echo
 
-        paru -Su
-        paru -S --needed --noconfirm --sudoloop gdb ninja gcc glaze cmake meson libxcb xcb-proto xcb-util xcb-util-keysyms libxfixes libx11 libxcomposite xorg-xinput libxrender pixman wayland-protocols cairo pango seatd libxkbcommon xcb-util-wm xorg-xwayland libinput libliftoff libdisplay-info cpio tomlplusplus xcb-util-errors
+        
+        paru -S --needed --noconfirm --sudoloop gdb ninja gcc glaze cmake meson qt6 libzip polkit-qt6 libxcb xcb-proto xcb-util xcb-util-keysyms libxfixes libx11 libxcomposite pugixml xorg-xinput libxrender pixman wayland-protocols cairo pango seatd libxkbcommon xcb-util-wm xorg-xwayland libinput libliftoff libdisplay-info cpio tomlplusplus xcb-util-errors
     fi
 
     if [ "$distro_id" = "openSUSE" ]; then
@@ -149,6 +149,38 @@ hyprland-qtutils() {
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
     cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
     sudo cmake --install build
+
+    cd ..
+}
+hyprland-qt-support() {
+    check_and_clone_repo "hyprland-qt-support" "https://github.com/hyprwm/hyprland-qt-support.git"
+    echo
+    echo "#################################################"
+    echo "# Processing repository: hyprland-qt-support... #"
+    echo "#################################################"
+    echo
+    cd "hyprland-qt-support"
+
+    # Pull the latest changes
+    output=$(git pull)
+
+    if [ "$rebuild" = false ]; then
+        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
+            echo "Repository is already up to date. Skipping build and install."
+            cd ..
+            return # Exit the function early
+        fi
+    fi
+    # Reconfigure if a build directory exists
+    if [ -d "build" ]; then
+        echo "Found existing build directory, reconfiguring..."
+        rm -rf build
+    fi
+
+    # Configure, build, and install
+  	cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -DINSTALL_QML_PREFIX=/lib/qt6/qml -S . -B ./build
+	cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+    	sudo cmake --install build
 
     cd ..
 }
@@ -698,7 +730,7 @@ sdbus-cpp() {
 }
 
 # Array of function names corresponding to each repository
-repos=("Dependencies" "hyprwayland-scanner" "hyprland-protocols" "hyprutils" "hyprland-qtutils" "aquamarine" "hyprgraphics" "hyprlang" "hyprcursor" "Hyprland" "hyprlock" "hyprpicker" "hyprpaper" "sdbus-cpp" "hypridle" "xdg-desktop-portal-hyprland" "hyprsysteminfo" "hyprpolkitagent" "Hyprshot")
+repos=("Dependencies" "sdbus-cpp" "hyprwayland-scanner" "hyprland-protocols" "hyprutils" "hyprland-qtutils" "hyprland-qt-support" "aquamarine" "hyprgraphics" "hyprlang" "hyprcursor" "Hyprland" "hyprlock" "hyprpicker" "hyprpaper" "hypridle" "xdg-desktop-portal-hyprland" "hyprsysteminfo" "hyprpolkitagent" "Hyprshot")
 
 # Command-line argument parsing
 while [[ "$#" -gt 0 ]]; do
