@@ -594,7 +594,7 @@ hyprpaper() {
 
     # Configure and build the project using CMake
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
-    cmake --build ./build --config Release --target hyprpaper -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
+    cmake --build ./build --config Release --target hyprpaper -j`nproc 2>/dev/null || getconf _NPROCESSORS_CONF`
 
     # Install the built project
     sudo cmake --install ./build
@@ -739,7 +739,7 @@ while [[ "$#" -gt 0 ]]; do
         rebuild=true
         shift
         ;;
-    --rebuild_only)
+    --rebuild-only)
         rebuild=true
         shift
         while [[ "$#" -gt 0 && ! "$1" =~ ^-- ]]; do
