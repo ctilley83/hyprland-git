@@ -284,7 +284,7 @@ hyprlang() {
 
     # Configure, build, and install
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
-    cmake --build ./build --config Release --target hyprlang -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
+    cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
     sudo cmake --install ./build
 
     cd ..
@@ -458,7 +458,7 @@ hypridle() {
     fi
 
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -S . -B ./build
-    cmake --build ./build --config Release --target hypridle -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
+    cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
 
     sudo cmake --install build
 
@@ -491,7 +491,7 @@ hyprlock() {
     fi
 
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -S . -B ./build
-    cmake --build ./build --config Release --target hyprlock -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
+    cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
 
     sudo cmake --install build
 
@@ -524,7 +524,7 @@ hyprpicker() {
     fi
 
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
-    cmake --build ./build --config Release --target hyprpicker -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
+    cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
 
     sudo cmake --install ./build
 
@@ -556,7 +556,7 @@ hyprpolkitagent() {
     fi
 
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
-    cmake --build ./build --config Release --target hyprpolkitagent -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
+    cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
 
     sudo cmake --install ./build
 
@@ -594,7 +594,7 @@ hyprpaper() {
 
     # Configure and build the project using CMake
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
-    cmake --build ./build --config Release --target hyprpaper -j`nproc 2>/dev/null || getconf _NPROCESSORS_CONF`
+    cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf _NPROCESSORS_CONF`
 
     # Install the built project
     sudo cmake --install ./build
@@ -602,7 +602,46 @@ hyprpaper() {
     # Return to the previous directory
     cd ..
 }
+hyprsunset() {
+    echo
+    echo "#######################################"
+    echo "# Processing repository: hyprsunset... #"
+    echo "#######################################"
+    echo
 
+    check_and_clone_repo "hyprsunset" "https://github.com/hyprwm/hyprsunset.git"
+
+    cd "hyprsunset"
+
+    # Pull changes from the repository
+    output=$(git pull)
+
+    # Check if rebuild is necessary
+    if [ "$rebuild" = false ]; then
+        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
+            echo "Repository is already up to date. Skipping build and install."
+            cd ..
+            return # Exit the function early
+        fi
+    fi
+
+    # Check if build directory exists, then clean it up
+    if [ -d "build" ]; then
+        echo "Found existing build directory, cleaning up..."
+        rm -rf build
+        echo "Build directory removed. Reconfiguring..."
+    fi
+
+    # Configure and build the project using CMake
+    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
+    cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf _NPROCESSORS_CONF`
+
+    # Install the built project
+    sudo cmake --install ./build
+
+    # Return to the previous directory
+    cd ..
+}
 xdg-desktop-portal-hyprland() {
     echo
     echo "######################################"
@@ -730,7 +769,7 @@ sdbus-cpp() {
 }
 
 # Array of function names corresponding to each repository
-repos=("Dependencies" "sdbus-cpp" "hyprwayland-scanner" "hyprland-protocols" "hyprutils" "hyprland-qtutils" "hyprland-qt-support" "aquamarine" "hyprgraphics" "hyprlang" "hyprcursor" "Hyprland" "hyprlock" "hyprpicker" "hyprpaper" "hypridle" "xdg-desktop-portal-hyprland" "hyprsysteminfo" "hyprpolkitagent" "Hyprshot")
+repos=("Dependencies" "sdbus-cpp" "hyprwayland-scanner" "hyprland-protocols" "hyprutils" "hyprland-qtutils" "hyprland-qt-support" "aquamarine" "hyprgraphics" "hyprlang" "hyprcursor" "Hyprland" "hyprlock" "hyprpicker" "hyprpaper" "hypridle" "hyprsunset" "xdg-desktop-portal-hyprland" "hyprsysteminfo" "hyprpolkitagent" "Hyprshot")
 
 # Command-line argument parsing
 while [[ "$#" -gt 0 ]]; do
