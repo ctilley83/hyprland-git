@@ -769,8 +769,7 @@ sdbus-cpp() {
 }
 
 # Array of function names corresponding to each repository
-repos=("Dependencies" "sdbus-cpp" "hyprwayland-scanner" "hyprland-protocols" "hyprutils" "hyprland-qtutils" "hyprland-qt-support" "aquamarine" "hyprgraphics" "hyprlang" "hyprcursor" "Hyprland" "hyprlock" "hyprpicker" "hyprpaper" "hypridle" "hyprsunset" "xdg-desktop-portal-hyprland" "hyprsysteminfo" "hyprpolkitagent" "Hyprshot")
-
+repos=("Dependencies" "sdbus-cpp" "hyprwayland-scanner" "hyprland-protocols" "hyprutils" "hyprland-qtutils" "hyprland-qt-support" "aquamarine" "hyprgraphics" "hyprlang" "hyprcursor" "Hyprland" "hyprlock" "hyprpicker" "hyprpaper" "hypridle" "xdg-desktop-portal-hyprland" "hyprsysteminfo" "hyprpolkitagent" "Hyprshot", "hyprsunset")
 # Command-line argument parsing
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
