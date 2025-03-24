@@ -81,6 +81,7 @@ hyprutils() {
     fi
 
     # Configure, build, and install
+    git clean -fdX
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
     cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
     sudo cmake --install build
@@ -113,6 +114,7 @@ hyprland-protocols() {
     fi
 
     # Configure, build, and install
+    git clean -fdX
     meson subprojects update --reset
     meson setup build
     ninja -C build
@@ -144,7 +146,8 @@ hyprland-qtutils() {
         echo "Found existing build directory, reconfiguring..."
         rm -rf build
     fi
-
+    
+    git clean -fdX
     # Configure, build, and install
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
     cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
@@ -177,6 +180,7 @@ hyprland-qt-support() {
         rm -rf build
     fi
 
+    git clean -fdX
     # Configure, build, and install
   	cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -DINSTALL_QML_PREFIX=/lib/qt6/qml -S . -B ./build
 	cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
@@ -209,7 +213,7 @@ hyprwayland-scanner() {
         echo "Guess, what? there's an existing build directory, reconfiguring"
         rm -rf build
     fi
-
+    git clean -fdX
     cmake -DCMAKE_INSTALL_PREFIX=/usr -B build
     cmake --build build -j "$(nproc)"
     sudo cmake --install build
@@ -246,6 +250,7 @@ aquamarine() {
         rm -rf build
     fi
 
+    git clean -fdX
     # Configure, build, and install
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
     cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
@@ -283,6 +288,7 @@ hyprlang() {
     fi
 
     # Configure, build, and install
+    git clean -fdX
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
     cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
     sudo cmake --install ./build
@@ -319,6 +325,7 @@ hyprcursor() {
     fi
 
     # Configure, build, and install
+    git clean -fdX
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
     cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
     sudo cmake --install ./build
@@ -389,9 +396,10 @@ hyprgraphics() {
     fi
 
     # Configure and build the project using CMake
-   cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
-   echo "You're at the make command"
-   cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+    git clean -fdX
+    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
+    echo "You're at the make command"
+    cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
     # Install the built project
     sudo cmake --install ./build
 
@@ -426,7 +434,7 @@ Hyprland() {
         rm -rf build
     fi
     #configure, build, and install
-
+    git clean -fdX
     make all && sudo make install
 
     cd ..
@@ -456,7 +464,7 @@ hypridle() {
         echo "Found existing build directory, reconfiguring...."
         rm -rf build
     fi
-
+    git clean -fdX
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -S . -B ./build
     cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
 
@@ -489,7 +497,7 @@ hyprlock() {
         echo "Found existing build directory, reconfiguring...."
         rm -rf build
     fi
-
+    git clean -fdX
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -S . -B ./build
     cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
 
@@ -522,7 +530,7 @@ hyprpicker() {
         echo "Found existing build directory, reconfiguring...."
         rm -rf build
     fi
-
+    git clean -fdX
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
     cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
 
@@ -554,7 +562,7 @@ hyprpolkitagent() {
         echo "Found existing build directory, reconfiguring...."
         rm -rf build
     fi
-
+    git clean -fdX
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
     cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
 
@@ -593,6 +601,7 @@ hyprpaper() {
     fi
 
     # Configure and build the project using CMake
+    git clean -fdX
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
     cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf _NPROCESSORS_CONF`
 
@@ -633,7 +642,7 @@ hyprsunset() {
     fi
 
     # Configure and build the project using CMake
-    git clean -fdX ./protocols
+    git clean -fdX
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
     cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf _NPROCESSORS_CONF`
 
@@ -669,7 +678,7 @@ xdg-desktop-portal-hyprland() {
         echo "Build directory removed. Reconfiguring..."
 
     fi
-
+    git clean -fdX
     cmake -DCMAKE_INSTALL_LIBEXECDIR=/usr/lib -DCMAKE_INSTALL_PREFIX=/usr -B build
     cmake --build build
 
@@ -708,6 +717,7 @@ hyprsysteminfo() {
     fi
 
     # Configure and build the project using CMake
+    git clean -fdX
     cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
     cmake --build ./build --config Release --target hyprsysteminfo -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
 
@@ -743,6 +753,7 @@ sdbus-cpp() {
         rm -rf build
     fi
 
+    git clean -fdX
     mkdir build
     cd build
     cmake .. -DCMAKE_BUILD_TYPE=Release ${OTHER_CONFIG_FLAGS}
