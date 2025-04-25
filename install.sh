@@ -33,7 +33,7 @@ Dependencies() {
         echo
 
         
-        paru -S --needed --noconfirm --sudoloop gdb ninja gcc glaze cmake meson qt6 libzip polkit-qt6 libxcb xcb-proto xcb-util xcb-util-keysyms libxfixes libx11 libxcomposite pugixml xorg-xinput libxrender pixman wayland-protocols cairo pango seatd libxkbcommon xcb-util-wm xorg-xwayland libinput libliftoff libdisplay-info cpio tomlplusplus xcb-util-errors
+        yay -S --needed --noconfirm --sudoloop gdb ninja gcc glaze cmake meson qt6 libzip polkit-qt6 libxcb xcb-proto xcb-util xcb-util-keysyms libxfixes libx11 libxcomposite pugixml xorg-xinput libxrender pixman wayland-protocols cairo pango seatd libxkbcommon xcb-util-wm xorg-xwayland libinput libliftoff libdisplay-info cpio tomlplusplus xcb-util-errors
     fi
 
     if [ "$distro_id" = "openSUSE" ]; then
