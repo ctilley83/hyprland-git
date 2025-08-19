@@ -1,826 +1,466 @@
 #!/bin/bash
-# Outputs to logfile and the screen ./install.sh --rebuild 2>&1 | tee -a install.log
-rebuild=false
-rebuild_only=("Dependencies")
-# Exit script on any error
+# Usage examples:
+#   ./install.sh
+#   ./install.sh --rebuild
+#   ./install.sh --rebuild-only Hyprland hyprutils
+
 set -e
 
+# -----------------------------------------------------------------------------
+# Global toggles
+# -----------------------------------------------------------------------------
+rebuild=false
+rebuild_only=("Dependencies")
+
+# -----------------------------------------------------------------------------
+# Helpers: logging + concurrency
+# -----------------------------------------------------------------------------
+nprocs() { nproc 2>/dev/null || getconf _NPROCESSORS_CONF || echo 1; }
+
+section() {
+  echo
+  echo "###############################################"
+  printf "# %s #\n" "$1"
+  echo "###############################################"
+  echo
+}
+
+# -----------------------------------------------------------------------------
+# Compiler / toolchain setup (prefer GCC → fallback to Clang quietly)
+# -----------------------------------------------------------------------------
+setup_toolchain() {
+  # If the user had CC/CXX pointing at clang, ignore it.
+  if command -v "${CC:-}" >/dev/null 2>&1; then
+    if "${CC}" --version 2>/dev/null | head -n1 | grep -qi clang; then
+      echo "INFO: CC was set to clang; Hyprland repos require GCC. Unsetting CC/CXX."
+      unset CC CXX
+    fi
+  fi
+
+  if ! command -v gcc >/dev/null 2>&1; then
+    echo "ERROR: gcc not found on PATH."
+    echo "Fix: enable [core] in /etc/pacman.conf and install gcc, e.g.:"
+    echo "  sudo pacman -Syu gcc"
+    echo "Or (if you insist on yay):"
+    echo "  yay -S gcc"
+    exit 1
+  fi
+
+  export CC=gcc
+  export CXX=g++
+  echo "Using $(gcc --version | head -n1)"
+}
+
+# -----------------------------------------------------------------------------
+# Repo utilities
+# -----------------------------------------------------------------------------
 check_and_clone_repo() {
-    local dir_name=$1
-    local git_url=$2
-
-    if [ ! -d "$dir_name" ]; then
-        echo "Directory $dir_name not found. Cloning repository..."
-        git clone "$git_url"
-    else
-        echo "Directory $dir_name already exists. Skipping clone."
-    fi
+  local dir_name=$1 git_url=$2
+  if [ ! -d "$dir_name" ]; then
+    echo "Directory $dir_name not found. Cloning repository..."
+    git clone "$git_url" "$dir_name"
+  else
+    echo "Directory $dir_name already exists. Skipping clone."
+  fi
 }
 
-# Function to install dependencies on Arch
+# Returns 0 (true) if we should build, 1 (false) if we can skip
+# Usage: should_build <dir>
+should_build() {
+  local dir="$1"
+  cd "$dir"
+  local output
+  output=$(git pull)
+  if [ "$rebuild" = false ] && [[ "$output" == *"Already up to date."* && -d "build" ]]; then
+    echo "Repository is already up to date and has a build dir. Skipping."
+    cd - >/dev/null
+    return 1
+  fi
+  cd - >/dev/null
+  return 0
+}
+
+git_clean_and_reset_build() {
+  local dir="$1"
+  cd "$dir"
+  if [ -d build ]; then
+    echo "Found existing build directory, reconfiguring..."
+    rm -rf build
+  fi
+  git clean -fdX
+  cd - >/dev/null
+}
+
+# -----------------------------------------------------------------------------
+# Build systems
+# -----------------------------------------------------------------------------
+cmake_build_install() {
+  # Args: <dir> [cmake_args] [target]
+  local dir="$1"
+  local cmake_args="$2"
+  local target="${3:-all}"
+  cd "$dir"
+  cmake -S . -B build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_C_COMPILER="${CC:-gcc}" \
+    -DCMAKE_CXX_COMPILER="${CXX:-g++}" \
+    ${cmake_args}
+  cmake --build build --config Release --target "${target}" -j"$(nprocs)"
+  sudo cmake --install build
+  cd - >/dev/null
+}
+
+meson_build_install() {
+  # Args: <dir> [meson_args]
+  local dir="$1"
+  local meson_args="$2"
+  cd "$dir"
+  meson setup build ${meson_args}
+  ninja -C build
+  sudo ninja -C build install
+  cd - >/dev/null
+}
+
+make_build_install() {
+  # Args: <dir> [make_targets] [install_targets]
+  local dir="$1"
+  local make_targets="${2:-all}"
+  local install_targets="${3:-install}"
+  cd "$dir"
+  make ${make_targets} -j"$(nprocs)"
+  sudo make ${install_targets}
+  cd - >/dev/null
+}
+
+# -----------------------------------------------------------------------------
+# Dependencies
+# -----------------------------------------------------------------------------
 Dependencies() {
-    distro_id=$(lsb_release -si)
-    echo
-    echo "#######################################"
-    echo "# Installing required dependencies... #"
-    echo "#######################################"
-    echo
+  local distro_id
+  distro_id=$(lsb_release -si || echo Unknown)
 
-    if [ "$distro_id" = "EndeavourOS" ] || [ "$distro_id" = "Arch" ]; then
-        echo "######################################"
-        echo "# Building for EndeavorOS or Arch... #"
-        echo "######################################"
-        echo
+  section "Installing required dependencies..."
 
-        
-        yay -S --needed --noconfirm --sudoloop gdb ninja gcc glaze cmake meson qt6 libzip polkit-qt6 libxcb xcb-proto xcb-util xcb-util-keysyms libxfixes libx11 libxcomposite pugixml xorg-xinput libxrender pixman wayland-protocols cairo pango seatd libxkbcommon xcb-util-wm xorg-xwayland libinput libliftoff libdisplay-info cpio tomlplusplus xcb-util-errors
-    fi
+  if [ "$distro_id" = "EndeavourOS" ] || [ "$distro_id" = "Arch" ]; then
+    section "Building for EndeavourOS or Arch..."
+    yay -S --needed --noconfirm --sudoloop \
+      gdb ninja gcc glaze cmake meson qt6 libzip polkit-qt6 \
+      libxcb xcb-proto xcb-util xcb-util-keysyms libxfixes libx11 \
+      libxcomposite pugixml xorg-xinput libxrender pixman wayland-protocols \
+      cairo pango seatd libxkbcommon xcb-util-wm xorg-xwayland libinput \
+      libliftoff libdisplay-info cpio tomlplusplus xcb-util-errors
+  fi
 
-    if [ "$distro_id" = "openSUSE" ]; then
-        echo "#######################################"
-        echo "# Building for openSUSE Tumbleweed... #"
-        echo "#######################################"
-        echo
+  if [ "$distro_id" = "openSUSE" ]; then
+    section "Building for openSUSE Tumbleweed..."
+    sudo zypper dup --non-interactive --no-recommends
+    sudo zypper install --non-interactive --no-recommends \
+      gcc-c++ ninja file-devel git meson cmake pugixml-devel librsvg-devel \
+      libzip-devel xcb-util-devel \
+      "pkgconfig(cairo)" "pkgconfig(egl)" "pkgconfig(gbm)" \
+      "pkgconfig(gl)" "pkgconfig(glesv2)" "pkgconfig(libdrm)" \
+      "pkgconfig(libinput)" "pkgconfig(libseat)" "pkgconfig(libudev)" \
+      "pkgconfig(pango)" "pkgconfig(pangocairo)" "pkgconfig(pixman-1)" \
+      "pkgconfig(vulkan)" "pkgconfig(wayland-client)" "pkgconfig(wayland-protocols)" \
+      "pkgconfig(wayland-scanner)" "pkgconfig(wayland-server)" "pkgconfig(xcb)" \
+      "pkgconfig(xcb-icccm)" "pkgconfig(xcb-renderutil)" "pkgconfig(xkbcommon)" \
+      "pkgconfig(xwayland)" "pkgconfig(xcb-errors)" \
+      glslang-devel Mesa-libGLESv3-devel tomlplusplus-devel
+  fi
 
-        sudo zypper dup --non-interactive --no-recommends
-        sudo zypper install --non-interactive --no-recommends gcc-c++ ninja file-devel git meson cmake pugixml-devel librsvg-devel libzip-devel xcb-util-devel "pkgconfig(cairo)" "pkgconfig(egl)" "pkgconfig(gbm)" "pkgconfig(gl)" "pkgconfig(glesv2)" "pkgconfig(libdrm)" "pkgconfig(libinput)" "pkgconfig(libseat)" "pkgconfig(libudev)" "pkgconfig(pango)" "pkgconfig(pangocairo)" "pkgconfig(pixman-1)" "pkgconfig(vulkan)" "pkgconfig(wayland-client)" "pkgconfig(wayland-protocols)" "pkgconfig(wayland-scanner)" "pkgconfig(wayland-server)" "pkgconfig(xcb)" "pkgconfig(xcb-icccm)" "pkgconfig(xcb-renderutil)" "pkgconfig(xkbcommon)" "pkgconfig(xwayland)" "pkgconfig(xcb-errors)" glslang-devel Mesa-libGLESv3-devel tomlplusplus-devel
-    fi
-    if [ "$distro_id" = "Ubuntu" ]; then
-        echo "###########################"
-        echo "# Building for Ubuntu...  #"
-        echo "###########################"
-        echo
-
-        sudo apt-get install -y meson wget build-essential ninja-build cmake-extras cmake gettext gettext-base fontconfig libfontconfig-dev libffi-dev libxml2-dev libdrm-dev libxkbcommon-x11-dev libxkbregistry-dev libxkbcommon-dev libpixman-1-dev libudev-dev libseat-dev seatd libxcb-dri3-dev libegl-dev libgles2 libegl1-mesa-dev glslang-tools libinput-bin libinput-dev libxcb-composite0-dev libavutil-dev libavcodec-dev libavformat-dev libxcb-ewmh2 libxcb-ewmh-dev libxcb-present-dev libxcb-icccm4-dev libxcb-render-util0-dev libxcb-res0-dev libxcb-xinput-dev libtomlplusplus3
-    fi
+  if [ "$distro_id" = "Ubuntu" ]; then
+    section "Building for Ubuntu..."
+    sudo apt-get install -y \
+      meson wget build-essential ninja-build cmake-extras cmake gettext gettext-base \
+      fontconfig libfontconfig-dev libffi-dev libxml2-dev libdrm-dev \
+      libxkbcommon-x11-dev libxkbregistry-dev libxkbcommon-dev libpixman-1-dev \
+      libudev-dev libseat-dev seatd libxcb-dri3-dev libegl-dev libgles2 \
+      libegl1-mesa-dev glslang-tools libinput-bin libinput-dev libxcb-composite0-dev \
+      libavutil-dev libavcodec-dev libavformat-dev libxcb-ewmh2 libxcb-ewmh-dev \
+      libxcb-present-dev libxcb-icccm4-dev libxcb-render-util0-dev libxcb-res0-dev \
+      libxcb-xinput-dev libtomlplusplus3
+  fi
 }
 
+# -----------------------------------------------------------------------------
+# Per-repo wrappers (now tiny) — adjust only where a repo needs special args
+# -----------------------------------------------------------------------------
 hyprutils() {
-    check_and_clone_repo "hyprutils" "https://github.com/hyprwm/hyprutils.git"
-    echo
-    echo "#######################################"
-    echo "# Processing repository: hyprutils... #"
-    echo "#######################################"
-    echo
-    cd "hyprutils"
-
-    # Pull the latest changes
-    output=$(git pull)
-
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-    # Reconfigure if a build directory exists
-    if [ -d "build" ]; then
-        echo "Found existing build directory, reconfiguring..."
-        rm -rf build
-    fi
-
-    # Configure, build, and install
-    git clean -fdX
-    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
-    cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
-    sudo cmake --install build
-
-    cd ..
+  local name="hyprutils" url="https://github.com/hyprwm/hyprutils.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
 }
+
 hyprland-protocols() {
-    check_and_clone_repo "hyprland-protocols" "https://github.com/hyprwm/hyprland-protocols.git"
-    echo
-    echo "################################################"
-    echo "# Processing repository: hyprland-protocols... #"
-    echo "################################################"
-    echo
-    cd "hyprland-protocols"
-
-    # Pull the latest changes
-    output=$(git pull)
-
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-    # Reconfigure if a build directory exists
-    if [ -d "build" ]; then
-        echo "Found existing build directory, reconfiguring..."
-        rm -rf build
-    fi
-
-    # Configure, build, and install
-    git clean -fdX
-    meson subprojects update --reset
-    meson setup build
-    ninja -C build
-    sudo ninja -C build install
-
-    cd ..
+  local name="hyprland-protocols" url="https://github.com/hyprwm/hyprland-protocols.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  ( cd "$name" && git clean -fdX && meson subprojects update --reset )
+  git_clean_and_reset_build "$name"
+  meson_build_install "$name"
 }
+
 hyprland-qtutils() {
-    check_and_clone_repo "hyprland-qtutils" "https://github.com/hyprwm/hyprland-qtutils.git"
-    echo
-    echo "##############################################"
-    echo "# Processing repository: hyprland-qtutils... #"
-    echo "##############################################"
-    echo
-    cd "hyprland-qtutils"
-
-    # Pull the latest changes
-    output=$(git pull)
-
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-    # Reconfigure if a build directory exists
-    if [ -d "build" ]; then
-        echo "Found existing build directory, reconfiguring..."
-        rm -rf build
-    fi
-    
-    git clean -fdX
-    # Configure, build, and install
-    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
-    cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
-    sudo cmake --install build
-
-    cd ..
+  local name="hyprland-qtutils" url="https://github.com/hyprwm/hyprland-qtutils.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
 }
+
 hyprland-qt-support() {
-    check_and_clone_repo "hyprland-qt-support" "https://github.com/hyprwm/hyprland-qt-support.git"
-    echo
-    echo "#################################################"
-    echo "# Processing repository: hyprland-qt-support... #"
-    echo "#################################################"
-    echo
-    cd "hyprland-qt-support"
-
-    # Pull the latest changes
-    output=$(git pull)
-
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-    # Reconfigure if a build directory exists
-    if [ -d "build" ]; then
-        echo "Found existing build directory, reconfiguring..."
-        rm -rf build
-    fi
-
-    git clean -fdX
-    # Configure, build, and install
-  	cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -DINSTALL_QML_PREFIX=/lib/qt6/qml -S . -B ./build
-	cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
-    	sudo cmake --install build
-
-    cd ..
+  local name="hyprland-qt-support" url="https://github.com/hyprwm/hyprland-qt-support.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name" "-DINSTALL_QML_PREFIX=/lib/qt6/qml"
 }
+
 hyprwayland-scanner() {
-    echo
-    echo "#################################################"
-    echo "# Processing repository: hyprwayland-scanner... #"
-    echo "#################################################"
-    echo
-
-    check_and_clone_repo "hyprwayland-scanner" "https://github.com/hyprwm/hyprwayland-scanner.git"
-
-    cd "hyprwayland-scanner"
-
-    output=$(git pull)
-
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-
-    if [ -d "build" ]; then
-        echo "Guess, what? there's an existing build directory, reconfiguring"
-        rm -rf build
-    fi
-    git clean -fdX
-    cmake -DCMAKE_INSTALL_PREFIX=/usr -B build
-    cmake --build build -j "$(nproc)"
-    sudo cmake --install build
-
-    cd ..
-
+  local name="hyprwayland-scanner" url="https://github.com/hyprwm/hyprwayland-scanner.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
 }
 
-# Function to pull, build, and install aquamarine
 aquamarine() {
-    echo
-    echo "########################################"
-    echo "# Processing repository: aquamarine... #"
-    echo "########################################"
-    echo
-
-    check_and_clone_repo "aquamarine" "https://github.com/hyprwm/aquamarine.git"
-
-    cd "aquamarine"
-
-    # Pull the latest changes
-    output=$(git pull)
-
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-    # Reconfigure if a build directory exists
-    if [ -d "build" ]; then
-        echo "Found existing build directory, reconfiguring..."
-        rm -rf build
-    fi
-
-    git clean -fdX
-    # Configure, build, and install
-    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
-    cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
-    sudo cmake --install ./build
-
-    cd ..
+  local name="aquamarine" url="https://github.com/hyprwm/aquamarine.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
 }
 
-# Function to pull, build, and install hyprlang
 hyprlang() {
-    echo
-    echo "######################################"
-    echo "# Processing repository: hyprlang... #"
-    echo "######################################"
-    echo
-
-    check_and_clone_repo "hyprlang" "https://github.com/hyprwm/hyprlang.git"
-
-    cd "hyprlang"
-
-    # Pull the latest changes
-    output=$(git pull)
-
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-    # Reconfigure if a build directory exists
-    if [ -d "build" ]; then
-        echo "Found existing build directory, reconfiguring..."
-        rm -rf build
-    fi
-
-    # Configure, build, and install
-    git clean -fdX
-    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
-    cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
-    sudo cmake --install ./build
-
-    cd ..
+  local name="hyprlang" url="https://github.com/hyprwm/hyprlang.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
 }
 
-# Function to pull, build, and install hyprcursor
 hyprcursor() {
-    echo
-    echo "########################################"
-    echo "# Processing repository: hyprcursor... #"
-    echo "########################################"
-    echo
-
-    check_and_clone_repo "hyprcursor" "https://github.com/hyprwm/hyprcursor.git"
-
-    cd "hyprcursor"
-
-    # Pull the latest changes
-    output=$(git pull)
-
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-    # Reconfigure if a build directory exists
-    if [ -d "build" ]; then
-        echo "Found existing build directory, reconfiguring..."
-        rm -rf build
-    fi
-
-    # Configure, build, and install
-    git clean -fdX
-    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
-    cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
-    sudo cmake --install ./build
-
-    cd ..
+  local name="hyprcursor" url="https://github.com/hyprwm/hyprcursor.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
 }
 
 Hyprshot() {
-    echo
-    echo "######################################"
-    echo "# Processing repository: hyprshot... #"
-    echo "######################################"
-    echo
-
-    check_and_clone_repo "Hyprshot" "https://github.com/Gustash/Hyprshot.git"
-
-    cd "Hyprshot"
-    output=$(git pull)
-
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-
-    cd ..
-
-    # Check if the symbolic link already exists
-    echo "Copying Hyprshot to ~/.local/bin"
-    cp -i "$(pwd)/Hyprshot/hyprshot" "$HOME/.local/bin/hyprshot"
-
-    echo "Changing permissions to executable"
-    chmod +x "$HOME/.local/bin/hyprshot"
-    echo "Succesfully installed Hyprshot"
-    echo
+  local name="Hyprshot" url="https://github.com/Gustash/Hyprshot.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  # Hyprshot is just a script; still pull for updates
+  ( cd "$name" && git pull >/dev/null )
+  mkdir -p "$HOME/.local/bin"
+  echo "Copying Hyprshot to ~/.local/bin"
+  cp -i "$(pwd)/$name/hyprshot" "$HOME/.local/bin/hyprshot"
+  echo "Changing permissions to executable"
+  chmod +x "$HOME/.local/bin/hyprshot"
+  echo "Successfully installed Hyprshot"
 }
 
 hyprgraphics() {
-    echo
-    echo "##########################################"
-    echo "# Processing repository: hyprgraphics... #"
-    echo "##########################################"
-    echo
-
-    check_and_clone_repo "hyprgraphics" "https://github.com/hyprwm/hyprgraphics.git"
-
-    cd "hyprgraphics"
-
-    # Pull changes from the repository
-    output=$(git pull)
-
-    # Check if rebuild is necessary
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-
-    # Check if build directory exists, then clean it up
-    if [ -d "build" ]; then
-        echo "Found existing build directory, cleaning up..."
-        rm -rf build
-        echo "Build directory removed. Reconfiguring..."
-    fi
-
-    # Configure and build the project using CMake
-    git clean -fdX
-    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
-    echo "You're at the make command"
-    cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
-    # Install the built project
-    sudo cmake --install ./build
-
-    # Return to the previous directory
-    cd ..
+  local name="hyprgraphics" url="https://github.com/hyprwm/hyprgraphics.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
 }
 
 Hyprland() {
-    echo
-    echo "######################################"
-    echo "# Processing repository: hyprland... #"
-    echo "######################################"
-    echo
-
-    check_and_clone_repo "Hyprland" "https://github.com/hyprwm/Hyprland.git"
-
-    cd "Hyprland"
-    output=$(git pull)
-    echo $output
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-
-    git submodule update --init
-
-    if [ -d "build" ]; then
-        echo "Found existing build directory, reconfiguring...."
-        rm -rf build
-    fi
-    #configure, build, and install
-    git clean -fdX
-    make all && sudo make install
-
-    cd ..
+  local name="Hyprland" url="https://github.com/hyprwm/Hyprland.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  ( cd "$name" && git submodule update --init && git clean -fdX )
+  # Hyprland uses a Makefile
+  make_build_install "$name" "all" "install"
 }
 
 hypridle() {
-    echo
-    echo "######################################"
-    echo "# Processing repository: hypridle... #"
-    echo "######################################"
-    echo
-
-    check_and_clone_repo "hypridle" "https://github.com/hyprwm/hypridle.git"
-
-    cd "hypridle"
-    output=$(git pull)
-
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-
-    if [ -d "build" ]; then
-        echo "Found existing build directory, reconfiguring...."
-        rm -rf build
-    fi
-    git clean -fdX
-    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -S . -B ./build
-    cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
-
-    sudo cmake --install build
-
-    cd ..
+  local name="hypridle" url="https://github.com/hyprwm/hypridle.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
 }
 
 hyprlock() {
-    echo
-    echo "#####################################"
-    echo "# Processing repository: hyprlock... "
-    echo "#####################################"
-    echo
-
-    check_and_clone_repo "hyprlock" "https://github.com/hyprwm/hyprlock.git"
-
-    cd "hyprlock"
-    output=$(git pull)
-
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-
-    if [ -d "build" ]; then
-        echo "Found existing build directory, reconfiguring...."
-        rm -rf build
-    fi
-    git clean -fdX
-    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -S . -B ./build
-    cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
-
-    sudo cmake --install build
-
-    cd ..
+  local name="hyprlock" url="https://github.com/hyprwm/hyprlock.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
 }
 
 hyprpicker() {
-    echo
-    echo "########################################"
-    echo "# Processing repository: hyprpicker... #"
-    echo "########################################"
-    echo
-
-    check_and_clone_repo "hyprpicker" "https://github.com/hyprwm/hyprpicker.git"
-
-    cd "hyprpicker"
-    output=$(git pull)
-
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-
-    if [ -d "build" ]; then
-        echo "Found existing build directory, reconfiguring...."
-        rm -rf build
-    fi
-    git clean -fdX
-    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
-    cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
-
-    sudo cmake --install ./build
-
-    cd ..
+  local name="hyprpicker" url="https://github.com/hyprwm/hyprpicker.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
 }
+
 hyprpolkitagent() {
-    echo
-    echo "#############################################"
-    echo "# Processing repository: hyprpolkitagent... #"
-    echo "#############################################"
-    echo
-
-    check_and_clone_repo "hyprpolkitagent" "https://github.com/hyprwm/hyprpolkitagent.git"
-
-    cd "hyprpolkitagent"
-    output=$(git pull)
-
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-
-    if [ -d "build" ]; then
-        echo "Found existing build directory, reconfiguring...."
-        rm -rf build
-    fi
-    git clean -fdX
-    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
-    cmake --build ./build --config Release --target all -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
-
-    sudo cmake --install ./build
-
-    cd ..
+  local name="hyprpolkitagent" url="https://github.com/hyprwm/hyprpolkitagent.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
 }
+
 hyprpaper() {
-    echo
-    echo "#######################################"
-    echo "# Processing repository: hyprpaper... #"
-    echo "#######################################"
-    echo
-
-    check_and_clone_repo "hyprpaper" "https://github.com/hyprwm/hyprpaper.git"
-
-    cd "hyprpaper"
-
-    # Pull changes from the repository
-    output=$(git pull)
-
-    # Check if rebuild is necessary
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-
-    # Check if build directory exists, then clean it up
-    if [ -d "build" ]; then
-        echo "Found existing build directory, cleaning up..."
-        rm -rf build
-        echo "Build directory removed. Reconfiguring..."
-    fi
-
-    # Configure and build the project using CMake
-    git clean -fdX
-    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
-    cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf _NPROCESSORS_CONF`
-
-    # Install the built project
-    sudo cmake --install ./build
-
-    # Return to the previous directory
-    cd ..
+  local name="hyprpaper" url="https://github.com/hyprwm/hyprpaper.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
 }
+
 hyprsunset() {
-    echo
-    echo "#######################################"
-    echo "# Processing repository: hyprsunset... #"
-    echo "#######################################"
-    echo
-
-    check_and_clone_repo "hyprsunset" "https://github.com/hyprwm/hyprsunset.git"
-
-    cd "hyprsunset"
-
-    # Pull changes from the repository
-    output=$(git pull)
-
-    # Check if rebuild is necessary
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-
-    # Check if build directory exists, then clean it up
-    if [ -d "build" ]; then
-        echo "Found existing build directory, cleaning up..."
-        rm -rf build
-        echo "Build directory removed. Reconfiguring..."
-    fi
-
-    # Configure and build the project using CMake
-    git clean -fdX
-    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
-    cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf _NPROCESSORS_CONF`
-
-    # Install the built project
-    sudo cmake --install ./build
-
-    # Return to the previous directory
-    cd ..
+  local name="hyprsunset" url="https://github.com/hyprwm/hyprsunset.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
 }
+
 xdg-desktop-portal-hyprland() {
-    echo
-    echo "######################################"
-    echo "# Processing repository: XDG BLAH... #"
-    echo "######################################"
-    echo
-
-    check_and_clone_repo "xdg-desktop-portal-hyprland" "https://github.com/hyprwm/xdg-desktop-portal-hyprland.git"
-
-    cd "xdg-desktop-portal-hyprland"
-    output=$(git pull)
-
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-
-    if [ -d "build" ]; then
-        echo "Found existing build directory, reconfiguring...."
-        rm -rf build
-        echo "Build directory removed. Reconfiguring..."
-
-    fi
-    git clean -fdX
-    cmake -DCMAKE_INSTALL_LIBEXECDIR=/usr/lib -DCMAKE_INSTALL_PREFIX=/usr -B build
-    cmake --build build
-
-    sudo cmake --install build
-
-    cd ..
+  local name="xdg-desktop-portal-hyprland" url="https://github.com/hyprwm/xdg-desktop-portal-hyprland.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name" "-DCMAKE_INSTALL_LIBEXECDIR=/usr/lib"
 }
 
 hyprsysteminfo() {
-
-    echo
-    echo "############################################"
-    echo "# Processing repository: HyprSystemInfo... #"
-    echo "############################################"
-    echo
-
-    check_and_clone_repo "hyprsysteminfo" "https://github.com/hyprwm/hyprsysteminfo.git"
-
-    cd "hyprsysteminfo"
-    output=$(git pull)
-
-    # Check if rebuild is necessary
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-
-    # Check if build directory exists, then clean it up
-    if [ -d "build" ]; then
-        echo "Found existing build directory, cleaning up..."
-        rm -rf build
-        echo "Build directory removed. Reconfiguring..."
-    fi
-
-    # Configure and build the project using CMake
-    git clean -fdX
-    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
-    cmake --build ./build --config Release --target hyprsysteminfo -j"$(nproc 2>/dev/null || getconf _NPROCESSORS_CONF)"
-
-    # Install the built project
-    sudo cmake --install ./build
-
-    # Return to the previous directory
-    cd ..
+  local name="hyprsysteminfo" url="https://github.com/hyprwm/hyprsysteminfo.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  # Building 'all' is fine; if you want the exact target, pass "hyprsysteminfo" as target 3rd arg
+  cmake_build_install "$name"
 }
 
 sdbus-cpp() {
-    echo
-    echo "###########################################"
-    echo "# Processing repository: sdbus-cpp 2.0... #"
-    echo "###########################################"
-    echo
+  local name="sdbus-cpp" url="https://github.com/Kistler-Group/sdbus-cpp.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  # This project prefers out-of-source 'build' with "cmake .."
+  cd "$name"
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+  cmake --build build -j"$(nprocs)"
+  sudo cmake --build build --target install
+  cd - >/dev/null
 
-    check_and_clone_repo "sdbus-cpp" "https://github.com/Kistler-Group/sdbus-cpp.git"
+  # Shell config hints (kept from your original)
+  if [[ "$SHELL" == */bash ]]; then
+    grep -qxF 'export CMAKE_PREFIX_PATH="/usr/local:$CMAKE_PREFIX_PATH"' ~/.bashrc || echo 'export CMAKE_PREFIX_PATH="/usr/local:$CMAKE_PREFIX_PATH"' >>~/.bashrc
+    grep -qxF 'export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"' ~/.bashrc || echo 'export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"' >>~/.bashrc
+  elif [[ "$SHELL" == */zsh ]]; then
+    grep -qxF 'export CMAKE_PREFIX_PATH="/usr/local:$CMAKE_PREFIX_PATH"' ~/.zshrc || echo 'export CMAKE_PREFIX_PATH="/usr/local:$CMAKE_PREFIX_PATH"' >>~/.zshrc
+    grep -qxF 'export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"' ~/.zshrc || echo 'export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"' >>~/.zshrc
+  elif [[ "$SHELL" == */fish ]]; then
+    grep -qxF 'set -x CMAKE_PREFIX_PATH "/usr/local:$CMAKE_PREFIX_PATH"' ~/.config/fish/config.fish || echo 'set -x CMAKE_PREFIX_PATH "/usr/local:$CMAKE_PREFIX_PATH"' >>~/.config/fish/config.fish
+    grep -qxF 'set -x LD_LIBRARY_PATH "/usr/local/lib:$LD_LIBRARY_PATH"' ~/.config/fish/config.fish || echo 'set -x LD_LIBRARY_PATH "/usr/local/lib:$LD_LIBRARY_PATH"' >>~/.config/fish/config.fish
+  else
+    echo "Unsupported shell: $SHELL"
+  fi
 
-    cd "sdbus-cpp"
-    output=$(git pull)
-
-    if [ "$rebuild" = false ]; then
-        if [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-            echo "Repository is already up to date. Skipping build and install."
-            cd ..
-            return # Exit the function early
-        fi
-    fi
-
-    if [ -d "build" ]; then
-        echo "Found existing build directory, reconfiguring...."
-        rm -rf build
-    fi
-
-    git clean -fdX
-    mkdir build
-    cd build
-    cmake .. -DCMAKE_BUILD_TYPE=Release ${OTHER_CONFIG_FLAGS}
-    cmake --build .
-    sudo cmake --build . --target install
-    cd ../../
-
-    # Check the user's current shell and append to the appropriate RC file if not already present
-    if [[ "$SHELL" == */bash ]]; then
-        grep -qxF 'export CMAKE_PREFIX_PATH="/usr/local:$CMAKE_PREFIX_PATH"' ~/.bashrc || echo 'export CMAKE_PREFIX_PATH="/usr/local:$CMAKE_PREFIX_PATH"' >>~/.bashrc
-        grep -qxF 'export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"' ~/.bashrc || echo 'export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"' >>~/.bashrc
-    elif [[ "$SHELL" == */zsh ]]; then
-        grep -qxF 'export CMAKE_PREFIX_PATH="/usr/local:$CMAKE_PREFIX_PATH"' ~/.zshrc || echo 'export CMAKE_PREFIX_PATH="/usr/local:$CMAKE_PREFIX_PATH"' >>~/.zshrc
-        grep -qxF 'export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"' ~/.zshrc || echo 'export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"' >>~/.zshrc
-    elif [[ "$SHELL" == */fish ]]; then
-        grep -qxF 'set -x CMAKE_PREFIX_PATH "/usr/local:$CMAKE_PREFIX_PATH"' ~/.config/fish/config.fish || echo 'set -x CMAKE_PREFIX_PATH "/usr/local:$CMAKE_PREFIX_PATH"' >>~/.config/fish/config.fish
-        grep -qxF 'set -x LD_LIBRARY_PATH "/usr/local/lib:$LD_LIBRARY_PATH"' ~/.config/fish/config.fish || echo 'set -x LD_LIBRARY_PATH "/usr/local/lib:$LD_LIBRARY_PATH"' >>~/.config/fish/config.fish
-    else
-        echo "Unsupported shell: $SHELL"
-    fi
-
-    # Export variables in the current session
-    export CMAKE_PREFIX_PATH="/usr/local:$CMAKE_PREFIX_PATH"
-    export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
+  export CMAKE_PREFIX_PATH="/usr/local:$CMAKE_PREFIX_PATH"
+  export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
 }
 
-# Array of function names corresponding to each repository
-repos=("Dependencies" "sdbus-cpp" "hyprwayland-scanner" "hyprland-protocols" "hyprutils" "hyprland-qtutils" "hyprland-qt-support" "aquamarine" "hyprgraphics" "hyprlang" "hyprcursor" "Hyprland" "hyprlock" "hyprpicker" "hyprpaper" "hypridle" "xdg-desktop-portal-hyprland" "hyprsysteminfo" "hyprpolkitagent" "Hyprshot" "hyprsunset")
-# Command-line argument parsing
+# -----------------------------------------------------------------------------
+# Repo execution list
+# -----------------------------------------------------------------------------
+repos=(
+  "Dependencies"
+  "sdbus-cpp"
+  "hyprwayland-scanner"
+  "hyprland-protocols"
+  "hyprutils"
+  "hyprland-qtutils"
+  "hyprland-qt-support"
+  "aquamarine"
+  "hyprgraphics"
+  "hyprlang"
+  "hyprcursor"
+  "Hyprland"
+  "hyprlock"
+  "hyprpicker"
+  "hyprpaper"
+  "hypridle"
+  "xdg-desktop-portal-hyprland"
+  "hyprsysteminfo"
+  "hyprpolkitagent"
+  "Hyprshot"
+  "hyprsunset"
+)
+
+# -----------------------------------------------------------------------------
+# CLI parsing
+# -----------------------------------------------------------------------------
 while [[ "$#" -gt 0 ]]; do
-    case "$1" in
+  case "$1" in
     --rebuild)
-        rebuild=true
-        shift
-        ;;
+      rebuild=true; shift ;;
     --rebuild-only)
-        rebuild=true
+      rebuild=true; shift
+      while [[ "$#" -gt 0 && ! "$1" =~ ^-- ]]; do
+        rebuild_only+=("$1")
         shift
-        while [[ "$#" -gt 0 && ! "$1" =~ ^-- ]]; do
-            rebuild_only+=("$1") # Add repository names to the array
-            shift
-        done
-        ;;
+      done ;;
     *)
-        echo "Unknown option: $1"
-        exit 1
-        ;;
-    esac
+      echo "Unknown option: $1"; exit 1 ;;
+  esac
 done
 
-# Execute repositories based on user input
+# -----------------------------------------------------------------------------
+# Run
+# -----------------------------------------------------------------------------
+setup_toolchain
 
 if [[ ${#rebuild_only[@]} -gt 1 ]]; then
-    # Rebuild packages with --rebuild-only separated by spaces
-    for repo_function in "${rebuild_only[@]}"; do
-        if declare -F "$repo_function" >/dev/null; then
-            "$repo_function"
-        else
-            echo "Repository function '$repo_function' not found!"
-            exit 1
-        fi
-    done
-else # Build all packages
-    for repo_function in "${repos[@]}"; do
-        "$repo_function"
-    done
+  for repo_function in "${rebuild_only[@]}"; do
+    if declare -F "$repo_function" >/dev/null; then
+      "$repo_function"
+    else
+      echo "Repository function '$repo_function' not found!"; exit 1
+    fi
+  done
+else
+  for repo_function in "${repos[@]}"; do
+    "$repo_function"
+  done
 fi
+
 echo "########################################################################"
 echo "# All repositories have been pulled, built, and installed successfully #"
 echo "########################################################################"
+
