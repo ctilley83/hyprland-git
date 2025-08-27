@@ -365,6 +365,15 @@ hyprsysteminfo() {
   cmake_build_install "$name"
 }
 
+hyprqt6engine() {
+  local name="hyprqt6engine" url="https://github.com/hyprwm/hyprqt6engine.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name" "--no-warn-unused-cli"
+}
+
 sdbus-cpp() {
   local name="sdbus-cpp" url="https://github.com/Kistler-Group/sdbus-cpp.git"
   check_and_clone_repo "$name" "$url"
@@ -421,6 +430,7 @@ repos=(
   "hyprpolkitagent"
   "Hyprshot"
   "hyprsunset"
+  "hyprqt6engine"
 )
 
 # -----------------------------------------------------------------------------
