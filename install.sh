@@ -223,6 +223,15 @@ hyprland-qt-support() {
   cmake_build_install "$name" "-DINSTALL_QML_PREFIX=/lib/qt6/qml"
 }
 
+hyprqt6engine(){
+  local name="hyprqt6engine" url="https://github.com/hyprwm/hyprqt6engine.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
+}
+
 hyprwayland-scanner() {
   local name="hyprwayland-scanner" url="https://github.com/hyprwm/hyprwayland-scanner.git"
   check_and_clone_repo "$name" "$url"
@@ -416,6 +425,7 @@ repos=(
   "hyprutils"
   "hyprland-qtutils"
   "hyprland-qt-support"
+  "hyprqt6engine"
   "aquamarine"
   "hyprgraphics"
   "hyprlang"
