@@ -310,6 +310,7 @@ hypridle() {
   cmake_build_install "$name"
 }
 
+
 hyprlock() {
   local name="hyprlock" url="https://github.com/hyprwm/hyprlock.git"
   check_and_clone_repo "$name" "$url"
@@ -346,6 +347,38 @@ hyprpaper() {
   cmake_build_install "$name"
 }
 
+hyprtoolkit() {
+  local name="hyprtoolkit" url="https://github.com/hyprwm/hyprtoolkit.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
+}
+hyprwire() {
+  local name="hyprwire" url="https://github.com/hyprwm/hyprwire.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
+}
+hyprpwcenter() {
+  local name="hyprpwcenter" url="https://github.com/hyprwm/hyprpwcenter.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
+}
+hyprlauncher() {
+  local name="hyprlauncher" url="https://github.com/hyprwm/hyprlauncher.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
+}
 hyprsunset() {
   local name="hyprsunset" url="https://github.com/hyprwm/hyprsunset.git"
   check_and_clone_repo "$name" "$url"
@@ -422,13 +455,13 @@ repos=(
   "sdbus-cpp"
   "hyprwayland-scanner"
   "hyprland-protocols"
+  "hyprlang"
   "hyprutils"
   "hyprland-qtutils"
   "hyprland-qt-support"
   "hyprqt6engine"
   "aquamarine"
   "hyprgraphics"
-  "hyprlang"
   "hyprcursor"
   "Hyprland"
   "hyprlock"
@@ -441,6 +474,10 @@ repos=(
   "Hyprshot"
   "hyprsunset"
   "hyprqt6engine"
+  "hyprtoolkit"
+  "hyprwire"
+  "hyprpwcenter"
+  "hyprlauncher"
 )
 
 # -----------------------------------------------------------------------------
