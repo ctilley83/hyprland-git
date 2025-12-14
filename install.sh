@@ -4,7 +4,7 @@
 #   ./install.sh --rebuild
 #   ./install.sh --rebuild-only Hyprland hyprutils
 
-set -e
+set -euo pipefail
 
 # -----------------------------------------------------------------------------
 # Global toggles
@@ -26,7 +26,7 @@ section() {
 }
 
 # -----------------------------------------------------------------------------
-# Compiler / toolchain setup (prefer GCC → fallback to Clang quietly)
+# Compiler / toolchain setup (prefer GCC)
 # -----------------------------------------------------------------------------
 setup_toolchain() {
   # If the user had CC/CXX pointing at clang, ignore it.
@@ -39,10 +39,7 @@ setup_toolchain() {
 
   if ! command -v gcc >/dev/null 2>&1; then
     echo "ERROR: gcc not found on PATH."
-    echo "Fix: enable [core] in /etc/pacman.conf and install gcc, e.g.:"
-    echo "  sudo pacman -Syu gcc"
-    echo "Or (if you insist on yay):"
-    echo "  yay -S gcc"
+    echo "Fix: install gcc (Arch: sudo pacman -Syu gcc)"
     exit 1
   fi
 
@@ -58,7 +55,7 @@ check_and_clone_repo() {
   local dir_name=$1 git_url=$2
   if [ ! -d "$dir_name" ]; then
     echo "Directory $dir_name not found. Cloning repository..."
-    git clone "$git_url" "$dir_name"
+    git clone --recursive "$git_url" "$dir_name"
   else
     echo "Directory $dir_name already exists. Skipping clone."
   fi
@@ -69,13 +66,30 @@ check_and_clone_repo() {
 should_build() {
   local dir="$1"
   cd "$dir"
-  local output
-  output=$(git pull)
-  if [ "$rebuild" = false ] && [[ "$output" == *"Already up to date."* && -d "build" ]]; then
-    echo "Repository is already up to date and has a build dir. Skipping."
+
+  # Update submodules too (safe even if none)
+  git submodule update --init --recursive || true
+
+  local before after
+  before="$(git rev-parse HEAD)"
+
+  # Pull in a way that doesn't create noisy merge commits
+  if git pull --ff-only >/dev/null 2>&1; then
+    :
+  else
+    # Fallback if ff-only is not possible (e.g. local commits)
+    git pull --rebase --autostash >/dev/null 2>&1 || git pull >/dev/null
+  fi
+
+  after="$(git rev-parse HEAD)"
+
+  # If nothing changed and we already have a build dir, skip (unless forced rebuild)
+  if [ "$rebuild" = false ] && [ "$before" = "$after" ] && [ -d "build" ]; then
+    echo "No upstream changes (HEAD unchanged) and build dir exists. Skipping."
     cd - >/dev/null
     return 1
   fi
+
   cd - >/dev/null
   return 0
 }
@@ -87,7 +101,8 @@ git_clean_and_reset_build() {
     echo "Found existing build directory, reconfiguring..."
     rm -rf build
   fi
-  git clean -fdX
+  # "x" (lowercase) removes ignored AND untracked artifacts (nuke-from-orbit).
+  git clean -fdx
   cd - >/dev/null
 }
 
@@ -97,28 +112,19 @@ git_clean_and_reset_build() {
 cmake_build_install() {
   # Args: <dir> [cmake_args] [target]
   local dir="$1"
-  local cmake_args="$2"
+  local cmake_args="${2:-}"
   local target="${3:-all}"
   cd "$dir"
+
   cmake -S . -B build \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_C_COMPILER="${CC:-gcc}" \
     -DCMAKE_CXX_COMPILER="${CXX:-g++}" \
     ${cmake_args}
+
   cmake --build build --config Release --target "${target}" -j"$(nprocs)"
   sudo cmake --install build
-  cd - >/dev/null
-}
-
-meson_build_install() {
-  # Args: <dir> [meson_args]
-  local dir="$1"
-  local meson_args="$2"
-  cd "$dir"
-  meson setup build ${meson_args}
-  ninja -C build
-  sudo ninja -C build install
   cd - >/dev/null
 }
 
@@ -138,14 +144,14 @@ make_build_install() {
 # -----------------------------------------------------------------------------
 Dependencies() {
   local distro_id
-  distro_id=$(lsb_release -si || echo Unknown)
+  distro_id=$(lsb_release -si 2>/dev/null || echo Unknown)
 
   section "Installing required dependencies..."
 
   if [ "$distro_id" = "EndeavourOS" ] || [ "$distro_id" = "Arch" ]; then
     section "Building for EndeavourOS or Arch..."
     yay -S --needed --noconfirm --sudoloop \
-      gdb ninja gcc glaze cmake meson qt6 libzip polkit-qt6 \
+      gdb muparser ninja gcc glaze cmake meson qt6 libzip polkit-qt6 \
       libxcb xcb-proto xcb-util xcb-util-keysyms libxfixes libx11 \
       libxcomposite pugixml xorg-xinput libxrender pixman wayland-protocols \
       cairo pango seatd libxkbcommon xcb-util-wm xorg-xwayland libinput \
@@ -184,7 +190,7 @@ Dependencies() {
 }
 
 # -----------------------------------------------------------------------------
-# Per-repo wrappers (now tiny) — adjust only where a repo needs special args
+# Per-repo wrappers
 # -----------------------------------------------------------------------------
 hyprutils() {
   local name="hyprutils" url="https://github.com/hyprwm/hyprutils.git"
@@ -200,13 +206,12 @@ hyprland-protocols() {
   check_and_clone_repo "$name" "$url"
   section "Processing repository: $name"
   if ! should_build "$name"; then return; fi
-  ( cd "$name" && git clean -fdX && meson subprojects update --reset )
   git_clean_and_reset_build "$name"
-  meson_build_install "$name"
+  cmake_build_install "$name"
 }
 
-hyprland-qtutils() {
-  local name="hyprland-qtutils" url="https://github.com/hyprwm/hyprland-qtutils.git"
+hyprland-guiutils() {
+  local name="hyprland-guiutils" url="https://github.com/hyprwm/hyprland-guiutils.git"
   check_and_clone_repo "$name" "$url"
   section "Processing repository: $name"
   if ! should_build "$name"; then return; fi
@@ -223,7 +228,7 @@ hyprland-qt-support() {
   cmake_build_install "$name" "-DINSTALL_QML_PREFIX=/lib/qt6/qml"
 }
 
-hyprqt6engine(){
+hyprqt6engine() {
   local name="hyprqt6engine" url="https://github.com/hyprwm/hyprqt6engine.git"
   check_and_clone_repo "$name" "$url"
   section "Processing repository: $name"
@@ -272,12 +277,10 @@ Hyprshot() {
   local name="Hyprshot" url="https://github.com/Gustash/Hyprshot.git"
   check_and_clone_repo "$name" "$url"
   section "Processing repository: $name"
-  # Hyprshot is just a script; still pull for updates
-  ( cd "$name" && git pull >/dev/null )
+  ( cd "$name" && git pull --rebase --autostash 2>/dev/null || git pull >/dev/null )
   mkdir -p "$HOME/.local/bin"
   echo "Copying Hyprshot to ~/.local/bin"
   cp -i "$(pwd)/$name/hyprshot" "$HOME/.local/bin/hyprshot"
-  echo "Changing permissions to executable"
   chmod +x "$HOME/.local/bin/hyprshot"
   echo "Successfully installed Hyprshot"
 }
@@ -296,8 +299,7 @@ Hyprland() {
   check_and_clone_repo "$name" "$url"
   section "Processing repository: $name"
   if ! should_build "$name"; then return; fi
-  ( cd "$name" && git submodule update --init && git clean -fdX )
-  # Hyprland uses a Makefile
+  ( cd "$name" && git submodule update --init --recursive && git clean -fdx )
   make_build_install "$name" "all" "install"
 }
 
@@ -309,7 +311,6 @@ hypridle() {
   git_clean_and_reset_build "$name"
   cmake_build_install "$name"
 }
-
 
 hyprlock() {
   local name="hyprlock" url="https://github.com/hyprwm/hyprlock.git"
@@ -355,6 +356,7 @@ hyprtoolkit() {
   git_clean_and_reset_build "$name"
   cmake_build_install "$name"
 }
+
 hyprwire() {
   local name="hyprwire" url="https://github.com/hyprwm/hyprwire.git"
   check_and_clone_repo "$name" "$url"
@@ -363,6 +365,16 @@ hyprwire() {
   git_clean_and_reset_build "$name"
   cmake_build_install "$name"
 }
+
+hyprwire-protocols() {
+  local name="hyprwire-protocols" url="https://github.com/hyprwm/hyprwire-protocols.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name"
+}
+
 hyprpwcenter() {
   local name="hyprpwcenter" url="https://github.com/hyprwm/hyprpwcenter.git"
   check_and_clone_repo "$name" "$url"
@@ -371,6 +383,7 @@ hyprpwcenter() {
   git_clean_and_reset_build "$name"
   cmake_build_install "$name"
 }
+
 hyprlauncher() {
   local name="hyprlauncher" url="https://github.com/hyprwm/hyprlauncher.git"
   check_and_clone_repo "$name" "$url"
@@ -379,6 +392,7 @@ hyprlauncher() {
   git_clean_and_reset_build "$name"
   cmake_build_install "$name"
 }
+
 hyprsunset() {
   local name="hyprsunset" url="https://github.com/hyprwm/hyprsunset.git"
   check_and_clone_repo "$name" "$url"
@@ -403,12 +417,20 @@ hyprsysteminfo() {
   section "Processing repository: $name"
   if ! should_build "$name"; then return; fi
   git_clean_and_reset_build "$name"
-  # Building 'all' is fine; if you want the exact target, pass "hyprsysteminfo" as target 3rd arg
   cmake_build_install "$name"
 }
 
-hyprqt6engine() {
-  local name="hyprqt6engine" url="https://github.com/hyprwm/hyprqt6engine.git"
+hyprshutdown() {
+  local name="hyprshutdown" url="https://github.com/hyprwm/hyprshutdown.git"
+  check_and_clone_repo "$name" "$url"
+  section "Processing repository: $name"
+  if ! should_build "$name"; then return; fi
+  git_clean_and_reset_build "$name"
+  cmake_build_install "$name" "--no-warn-unused-cli"
+}
+
+hyprtavern() {
+  local name="hyprtavern" url="https://github.com/hyprwm/hyprtavern.git"
   check_and_clone_repo "$name" "$url"
   section "Processing repository: $name"
   if ! should_build "$name"; then return; fi
@@ -422,29 +444,12 @@ sdbus-cpp() {
   section "Processing repository: $name"
   if ! should_build "$name"; then return; fi
   git_clean_and_reset_build "$name"
-  # This project prefers out-of-source 'build' with "cmake .."
+
   cd "$name"
   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
   cmake --build build -j"$(nprocs)"
   sudo cmake --build build --target install
   cd - >/dev/null
-
-  # Shell config hints (kept from your original)
-  if [[ "$SHELL" == */bash ]]; then
-    grep -qxF 'export CMAKE_PREFIX_PATH="/usr/local:$CMAKE_PREFIX_PATH"' ~/.bashrc || echo 'export CMAKE_PREFIX_PATH="/usr/local:$CMAKE_PREFIX_PATH"' >>~/.bashrc
-    grep -qxF 'export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"' ~/.bashrc || echo 'export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"' >>~/.bashrc
-  elif [[ "$SHELL" == */zsh ]]; then
-    grep -qxF 'export CMAKE_PREFIX_PATH="/usr/local:$CMAKE_PREFIX_PATH"' ~/.zshrc || echo 'export CMAKE_PREFIX_PATH="/usr/local:$CMAKE_PREFIX_PATH"' >>~/.zshrc
-    grep -qxF 'export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"' ~/.zshrc || echo 'export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"' >>~/.zshrc
-  elif [[ "$SHELL" == */fish ]]; then
-    grep -qxF 'set -x CMAKE_PREFIX_PATH "/usr/local:$CMAKE_PREFIX_PATH"' ~/.config/fish/config.fish || echo 'set -x CMAKE_PREFIX_PATH "/usr/local:$CMAKE_PREFIX_PATH"' >>~/.config/fish/config.fish
-    grep -qxF 'set -x LD_LIBRARY_PATH "/usr/local/lib:$LD_LIBRARY_PATH"' ~/.config/fish/config.fish || echo 'set -x LD_LIBRARY_PATH "/usr/local/lib:$LD_LIBRARY_PATH"' >>~/.config/fish/config.fish
-  else
-    echo "Unsupported shell: $SHELL"
-  fi
-
-  export CMAKE_PREFIX_PATH="/usr/local:$CMAKE_PREFIX_PATH"
-  export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
 }
 
 # -----------------------------------------------------------------------------
@@ -457,11 +462,12 @@ repos=(
   "hyprland-protocols"
   "hyprlang"
   "hyprutils"
-  "hyprland-qtutils"
   "hyprland-qt-support"
   "hyprqt6engine"
   "aquamarine"
   "hyprgraphics"
+  "hyprtoolkit"
+  "hyprland-guiutils"
   "hyprcursor"
   "Hyprland"
   "hyprlock"
@@ -473,11 +479,12 @@ repos=(
   "hyprpolkitagent"
   "Hyprshot"
   "hyprsunset"
-  "hyprqt6engine"
-  "hyprtoolkit"
   "hyprwire"
   "hyprpwcenter"
   "hyprlauncher"
+  "hyprshutdown"
+  "hyprwire-protocols"
+  "hyprtavern"
 )
 
 # -----------------------------------------------------------------------------
@@ -513,7 +520,11 @@ if [[ ${#rebuild_only[@]} -gt 1 ]]; then
   done
 else
   for repo_function in "${repos[@]}"; do
-    "$repo_function"
+    if declare -F "$repo_function" >/dev/null; then
+      "$repo_function"
+    else
+      echo "Repository function '$repo_function' not found!"; exit 1
+    fi
   done
 fi
 
